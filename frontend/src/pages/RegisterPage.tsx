@@ -386,7 +386,7 @@ export default function RegisterPage() {
                         checkMember(form.registrationNumber);
                       }
                     }}
-                    placeholder="e.g. 25BAI1218"
+                    placeholder="Enter your registration number"
                     className={inputClass(!!errors.registrationNumber)}
                     autoComplete="off"
                   />
