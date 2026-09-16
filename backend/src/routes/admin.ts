@@ -1,5 +1,4 @@
 import { Router, Request, Response } from 'express';
-import rateLimit from 'express-rate-limit';
 import { body, query, param, validationResult } from 'express-validator';
 import jwt from 'jsonwebtoken';
 import { requireAdmin } from '../middleware/auth';
@@ -11,19 +10,9 @@ import { deleteApplicant } from '../services/allocationEngine';
 
 const router = Router();
 
-// ── Rate limiter for login endpoint ──────────────────────────────────────────
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5,
-  message: { error: 'Too many login attempts. Please try again in 15 minutes.' },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
 // ── POST /api/admin/login ─────────────────────────────────────────────────────
 router.post(
   '/login',
-  loginLimiter,
   [
     body('email').trim().isEmail().withMessage('Invalid email'),
     body('password').notEmpty().withMessage('Password required'),
