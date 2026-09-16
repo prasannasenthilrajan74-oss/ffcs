@@ -9,7 +9,17 @@ interface AdminTokenPayload {
 }
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
-  const token = req.cookies?.adminToken;
+  let token = req.cookies?.adminToken;
+
+  // Support Authorization: Bearer <token> (essential for cross-domain Vercel <-> Render)
+  if (!token && req.headers.authorization?.startsWith('Bearer ')) {
+    token = req.headers.authorization.split(' ')[1];
+  }
+
+  // Support token query parameter (useful for window.open file/CSV downloads)
+  if (!token && typeof req.query.token === 'string') {
+    token = req.query.token;
+  }
 
   if (!token) {
     res.status(401).json({ error: 'Authentication required' });

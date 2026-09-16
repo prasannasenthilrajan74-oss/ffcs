@@ -8,6 +8,14 @@ export const api = axios.create({
   timeout: 15000,
 });
 
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('vitsion_admin_token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type DepartmentName =
@@ -117,10 +125,17 @@ export async function adminLogin(
   email: string,
   password: string
 ): Promise<void> {
-  await api.post('/api/admin/login', { email, password });
+  const res = await api.post<{ success: boolean; token?: string }>('/api/admin/login', {
+    email,
+    password,
+  });
+  if (res.data?.token) {
+    localStorage.setItem('vitsion_admin_token', res.data.token);
+  }
 }
 
 export async function adminLogout(): Promise<void> {
+  localStorage.removeItem('vitsion_admin_token');
   await api.post('/api/admin/logout');
 }
 
@@ -178,7 +193,11 @@ export async function updateSettings(settings: {
 
 export function getExportUrl(department?: string): string {
   const base = `${API_BASE}/api/admin/export`;
-  return department ? `${base}?department=${encodeURIComponent(department)}` : base;
+  const token = localStorage.getItem('vitsion_admin_token');
+  const params = new URLSearchParams();
+  if (department) params.set('department', department);
+  if (token) params.set('token', token);
+  return `${base}${params.toString() ? '?' + params.toString() : ''}`;
 }
 
 export interface VerifyMemberResult {

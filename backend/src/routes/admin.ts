@@ -56,7 +56,7 @@ router.post(
       maxAge: 8 * 60 * 60 * 1000, // 8 hours
     });
 
-    res.json({ success: true, message: 'Logged in successfully' });
+    res.json({ success: true, token, message: 'Logged in successfully' });
   }
 );
 
