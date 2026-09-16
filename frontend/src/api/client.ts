@@ -26,7 +26,7 @@ export type DepartmentName =
   | 'Event Management'
   | 'Photography'
   | 'Editing'
-  | 'Projects';
+  | 'Artistic';
 
 export const ALL_DEPARTMENTS: DepartmentName[] = [
   'Outreach',
@@ -36,7 +36,7 @@ export const ALL_DEPARTMENTS: DepartmentName[] = [
   'Event Management',
   'Photography',
   'Editing',
-  'Projects',
+  'Artistic',
 ];
 
 export type ApplicationStatus = 'CONFIRMED' | 'WAITLISTED';

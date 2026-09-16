@@ -109,7 +109,7 @@ The seed creates all 8 departments with these initial capacities:
 | Event Management | 20     |
 | Photography      | 15     |
 | Editing          | 16     |
-| Projects         | 15     |
+| Artistic         | 15     |
 
 ---
 

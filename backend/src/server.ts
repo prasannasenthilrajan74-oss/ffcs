@@ -7,6 +7,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 import { connectDB } from './config/db';
+import { Department } from './models/Department';
 import { syncFFCSRoster } from './services/ffcsRoster';
 import applicationsRouter from './routes/applications';
 import departmentsRouter from './routes/departments';
@@ -82,9 +83,14 @@ app.use(
 // ── Start ─────────────────────────────────────────────────────────────────────
 connectDB().then(async () => {
   try {
+    // Migrate legacy "Projects" department name to "Artistic" if present
+    await Department.collection.updateOne(
+      { name: 'Projects' },
+      { $set: { name: 'Artistic' } }
+    );
     await syncFFCSRoster();
   } catch (err) {
-    console.error('[Startup] Failed to sync FFCS roster:', err);
+    console.error('[Startup] Failed to sync FFCS roster / migrate:', err);
   }
 
   app.listen(PORT, () => {

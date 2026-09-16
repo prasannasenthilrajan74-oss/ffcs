@@ -30,7 +30,7 @@ export default function HomePage() {
 
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-[#e63946]/30 text-[#e63946] text-xs font-semibold tracking-widest uppercase mb-8">
           <span className="w-1.5 h-1.5 rounded-full bg-[#e63946] animate-pulse" />
-          Recruitment 2024–25
+          Recruitment 2026-27
         </div>
 
         <h1
@@ -109,7 +109,7 @@ export default function HomePage() {
               'Event Management',
               'Photography',
               'Editing',
-              'Projects',
+              'Artistic',
             ].map((dept) => (
               <div
                 key={dept}

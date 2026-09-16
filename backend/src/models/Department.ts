@@ -8,7 +8,7 @@ export const DEPARTMENT_NAMES = [
   'Event Management',
   'Photography',
   'Editing',
-  'Projects',
+  'Artistic',
 ] as const;
 
 export type DepartmentName = (typeof DEPARTMENT_NAMES)[number];

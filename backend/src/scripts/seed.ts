@@ -19,7 +19,7 @@ const INITIAL_CAPACITIES: Record<string, number> = {
   'Event Management': 20,
   Photography: 15,
   Editing: 16,
-  Projects: 15,
+  Artistic: 15,
 };
 
 async function seed() {
@@ -31,6 +31,12 @@ async function seed() {
 
   await mongoose.connect(uri);
   console.log('[Seed] Connected to MongoDB');
+
+  // Migrate legacy "Projects" department name to "Artistic" if present
+  await Department.collection.updateOne(
+    { name: 'Projects' },
+    { $set: { name: 'Artistic' } }
+  );
 
   for (const name of DEPARTMENT_NAMES) {
     const capacity = INITIAL_CAPACITIES[name] ?? 15;
