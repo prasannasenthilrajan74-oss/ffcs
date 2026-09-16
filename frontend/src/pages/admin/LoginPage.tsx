@@ -22,7 +22,7 @@ export default function AdminLoginPage() {
 
     try {
       await adminLogin(email, password);
-      navigate('/admin', { replace: true });
+      navigate('/appdefg', { replace: true });
     } catch (err) {
       if (axios.isAxiosError(err)) {
         if (err.response?.status === 429) {

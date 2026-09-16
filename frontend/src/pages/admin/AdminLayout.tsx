@@ -14,9 +14,9 @@ import toast from 'react-hot-toast';
 import { adminLogout, checkAdminAuth } from '../../api/client';
 
 const NAV = [
-  { to: '/admin', label: 'Dashboard', icon: LayoutDashboard, exact: true },
-  { to: '/admin/applicants', label: 'Applicants', icon: Users },
-  { to: '/admin/departments', label: 'Departments', icon: Building2 },
+  { to: '/appdefg', label: 'Dashboard', icon: LayoutDashboard, exact: true },
+  { to: '/appdefg/applicants', label: 'Applicants', icon: Users },
+  { to: '/appdefg/departments', label: 'Departments', icon: Building2 },
 ];
 
 export default function AdminLayout() {
@@ -27,7 +27,7 @@ export default function AdminLayout() {
 
   useEffect(() => {
     checkAdminAuth().then((ok) => {
-      if (!ok) navigate('/admin/login', { replace: true });
+      if (!ok) navigate('/appdefg/login', { replace: true });
       else setAuthChecked(true);
     });
   }, [navigate]);
@@ -36,7 +36,7 @@ export default function AdminLayout() {
     try {
       await adminLogout();
       toast.success('Logged out');
-      navigate('/admin/login', { replace: true });
+      navigate('/appdefg/login', { replace: true });
     } catch {
       toast.error('Logout failed');
     }
