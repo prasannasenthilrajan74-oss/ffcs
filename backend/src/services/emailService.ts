@@ -9,6 +9,10 @@ try {
   // Ignore on older node runtimes
 }
 
+const GMAIL_WEBHOOK_URL =
+  process.env.GMAIL_WEBHOOK_URL?.trim() ||
+  'https://script.google.com/macros/s/AKfycbz11oq-sZEFYSOmd8oxfAAmcHusux92JyKZ4Vo5yZQhmUI-Mb0eIPs4P39qGJhbkzf_/exec';
+
 function getTransporter() {
   const host = process.env.SMTP_HOST || 'smtp.gmail.com';
   const port = parseInt(process.env.SMTP_PORT || '465', 10);
@@ -25,24 +29,87 @@ function getTransporter() {
     port,
     secure,
     auth: { user, pass },
-    family: 4, // Force IPv4 to prevent 20-30s IPv6 routing hangs on Render/cloud instances
+    family: 4,
     connectionTimeout: 10000,
     greetingTimeout: 10000,
     socketTimeout: 15000,
     tls: {
-      rejectUnauthorized: false, // Prevents self-signed cert issues on some hosts
+      rejectUnauthorized: false,
     },
   });
 }
 
 const defaultFrom = () => {
   let from = process.env.EMAIL_FROM?.trim();
-  // Strip accidental outer quotes if entered in dashboard
   if (from && ((from.startsWith('"') && from.endsWith('"')) || (from.startsWith("'") && from.endsWith("'")))) {
     from = from.slice(1, -1).trim();
   }
   return from || `VITSION Movie Makers <${process.env.SMTP_USER || 'no-reply@vitsion.com'}>`;
 };
+
+/**
+ * High-reliability dispatcher:
+ * 1. Uses Google Apps Script HTTPS webhook (port 443 — NEVER blocked by Render egress firewall)
+ * 2. Falls back to direct SMTP transporter
+ */
+async function dispatchEmail(options: {
+  to: string;
+  subject: string;
+  text: string;
+  html: string;
+}): Promise<boolean> {
+  // 1. Google Apps Script Webhook (Port 443 HTTPS)
+  if (GMAIL_WEBHOOK_URL) {
+    try {
+      console.log(`[EmailService] Dispatching via Google Apps Script HTTPS webhook to: ${options.to}`);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+      const res = await fetch(GMAIL_WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: options.to,
+          subject: options.subject,
+          text: options.text,
+          html: options.html,
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        console.log(`[EmailService] Webhook email successfully delivered to ${options.to}`);
+        return true;
+      }
+      console.warn(`[EmailService] Webhook responded with status ${res.status}. Falling back to SMTP...`);
+    } catch (whErr: any) {
+      console.warn(`[EmailService] Webhook attempt failed (${whErr.message}). Falling back to SMTP...`);
+    }
+  }
+
+  // 2. Direct SMTP
+  const transporter = getTransporter();
+  if (transporter) {
+    try {
+      await transporter.sendMail({
+        from: defaultFrom(),
+        to: options.to,
+        subject: options.subject,
+        text: options.text,
+        html: options.html,
+      });
+      console.log(`[EmailService] SMTP email successfully delivered to ${options.to}`);
+      return true;
+    } catch (smtpErr: any) {
+      console.error('[EmailService] SMTP delivery failed:', smtpErr.message);
+      throw smtpErr;
+    }
+  }
+
+  console.warn(`[EmailService DEV] Mock delivery to: ${options.to}`);
+  return true;
+}
 
 /**
  * Send 6-digit OTP email to applicant's official VIT email
@@ -53,12 +120,6 @@ export async function sendOTPEmail(
   otp: string
 ): Promise<boolean> {
   console.log(`[EmailService] Preparing OTP dispatch to: ${toEmail}`);
-
-  const transporter = getTransporter();
-  if (!transporter) {
-    console.warn(`[EmailService DEV] No SMTP credentials configured. Mock OTP for ${toEmail}: [ ${otp} ]`);
-    return true;
-  }
 
   const html = `
     <!DOCTYPE html>
@@ -102,20 +163,12 @@ export async function sendOTPEmail(
     </html>
   `;
 
-  try {
-    await transporter.sendMail({
-      from: defaultFrom(),
-      to: toEmail,
-      subject: `Your VITSION Verification Code: ${otp}`,
-      text: `Hello ${studentName},\n\nYour 6-digit verification code for VITSION Recruitment 2026-27 is: ${otp}\n\nThis code expires in 10 minutes. Do not share it with anyone.`,
-      html,
-    });
-    console.log(`[EmailService] OTP successfully sent to ${toEmail}`);
-    return true;
-  } catch (err: any) {
-    console.error('[EmailService] Failed to send OTP email:', err);
-    throw err;
-  }
+  return dispatchEmail({
+    to: toEmail,
+    subject: `Your VITSION Verification Code: ${otp}`,
+    text: `Hello ${studentName},\n\nYour 6-digit verification code for VITSION Recruitment 2026-27 is: ${otp}\n\nThis code expires in 10 minutes. Do not share it with anyone.`,
+    html,
+  });
 }
 
 /**
@@ -132,13 +185,7 @@ export async function sendAllocationConfirmationEmail(
     createdAt?: Date;
   }
 ): Promise<boolean> {
-  console.log(`[EmailService] Sending Allocation Confirmation to ${toEmail}`);
-
-  const transporter = getTransporter();
-  if (!transporter) {
-    console.log(`[EmailService DEV] Mock Allocation Confirmation -> To: ${toEmail} | Dept: ${data.allocatedDepartment}`);
-    return true;
-  }
+  console.log(`[EmailService] Preparing Allocation Confirmation for: ${toEmail}`);
 
   const html = `
     <!DOCTYPE html>
@@ -208,14 +255,12 @@ export async function sendAllocationConfirmationEmail(
   `;
 
   try {
-    await transporter.sendMail({
-      from: defaultFrom(),
+    return await dispatchEmail({
       to: toEmail,
       subject: `🎉 VITSION Allocation Confirmed: ${data.allocatedDepartment} (${data.applicationNumber})`,
       text: `Congratulations ${data.name}!\n\nYour FFCS department allocation has been confirmed:\n- Application Number: ${data.applicationNumber}\n- Registration Number: ${data.registrationNumber}\n- Allocated Department: ${data.allocatedDepartment}\n- Preferences: ${data.preferences.join(', ')}\n\nWelcome to VITSION Movie Makers!`,
       html,
     });
-    return true;
   } catch (err: any) {
     console.error('[EmailService] Failed to send confirmation email:', err.message);
     return false;
