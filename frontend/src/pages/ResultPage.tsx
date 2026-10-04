@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Film, CheckCircle2, Clock, Copy, Check } from 'lucide-react';
+import { Film, CheckCircle2, Clock, Copy, Check, Mail } from 'lucide-react';
 import type { ApplicationStatus, DepartmentName } from '../api/client';
 
 interface StoredResult {
@@ -108,6 +108,17 @@ export default function ResultPage() {
                       CONFIRMED
                     </span>
                   </ResultRow>
+                </div>
+              </div>
+
+              {/* Email Confirmation Notice */}
+              <div className="flex items-center gap-3 p-3.5 rounded-xl bg-white/[0.04] border border-white/10 text-xs text-zinc-300 mb-6">
+                <div className="p-2 rounded-lg bg-[#e63946]/10 text-[#e63946] shrink-0">
+                  <Mail size={16} />
+                </div>
+                <div>
+                  <span className="font-semibold text-white block">Official Confirmation Dispatched</span>
+                  A receipt with your allocated department and application reference has been emailed to your VIT student inbox.
                 </div>
               </div>
 

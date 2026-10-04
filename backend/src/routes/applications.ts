@@ -3,20 +3,43 @@ import rateLimit from 'express-rate-limit';
 import { body, param, validationResult } from 'express-validator';
 import { allocate, DuplicateRegistrationError } from '../services/allocationEngine';
 import { Applicant } from '../models/Applicant';
-import { Department, DEPARTMENT_NAMES, DepartmentName } from '../models/Department';
+import { DEPARTMENT_NAMES, DepartmentName } from '../models/Department';
 import { FFCSMember } from '../models/FFCSMember';
+import { OTP } from '../models/OTP';
 import { getSetting } from '../models/Settings';
+import { sendOTPEmail, sendAllocationConfirmationEmail } from '../services/emailService';
 
 const router = Router();
 
-// Rate limit: max 60 requests per minute per IP for public registration
+// Rate limit: max 5 submissions per minute per IP
 const registrationLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 5, // 5 submissions per minute per IP (generous for genuine users)
+  max: 5,
   message: { error: 'Too many requests. Please wait a moment and try again.' },
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+// Rate limit OTP requests: max 8 requests per 10 minutes per IP
+const otpLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 8,
+  message: { error: 'Too many OTP requests. Please wait a few minutes before trying again.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+/**
+ * Mask email for privacy: e.g. prasanna.s2024@vitstudent.ac.in -> pr****24@vitstudent.ac.in
+ */
+function maskEmail(email: string): string {
+  const [user, domain] = email.split('@');
+  if (!user || !domain) return email;
+  if (user.length <= 4) {
+    return `${user.charAt(0)}***@${domain}`;
+  }
+  return `${user.slice(0, 2)}****${user.slice(-2)}@${domain}`;
+}
 
 const validationRules = [
   body('name')
@@ -51,6 +74,15 @@ const validationRules = [
     .trim()
     .isMobilePhone('any')
     .withMessage('Invalid phone number'),
+
+  body('otp')
+    .trim()
+    .notEmpty()
+    .withMessage('Verification code (OTP) is required')
+    .isLength({ min: 6, max: 6 })
+    .withMessage('Verification code must be exactly 6 digits')
+    .isNumeric()
+    .withMessage('Verification code must contain only numbers'),
 
   body('preferences')
     .isArray({ min: 3, max: 3 })
@@ -104,7 +136,7 @@ router.get('/verify-member', async (req: Request, res: Response): Promise<void> 
         registrationNumber: member.registrationNumber,
         name: member.name,
         email: member.email,
-        phone: member.phone || '',
+        maskedEmail: maskEmail(member.email),
         programme: member.programme,
         school: member.school,
       },
@@ -115,7 +147,87 @@ router.get('/verify-member', async (req: Request, res: Response): Promise<void> 
   }
 });
 
-// POST /api/applications
+// ── POST /api/applications/send-otp ───────────────────────────────────────────
+router.post(
+  '/send-otp',
+  otpLimiter,
+  body('registrationNumber')
+    .trim()
+    .notEmpty()
+    .withMessage('Registration number is required'),
+  async (req: Request, res: Response): Promise<void> => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(422).json({ errors: errors.array() });
+      return;
+    }
+
+    const cleanReg = ((req.body.registrationNumber as string) || '').trim().toUpperCase();
+
+    // Check if registration is open
+    const isOpen = await getSetting<boolean>('registrationOpen', true);
+    if (!isOpen) {
+      res.status(403).json({ error: 'Registration is currently closed.' });
+      return;
+    }
+
+    try {
+      // Find student in approved roster
+      const member = await FFCSMember.findOne({ registrationNumber: cleanReg });
+      if (!member) {
+        res.status(404).json({
+          error: `Registration number "${cleanReg}" was not found in the approved FFCS members roster.`,
+        });
+        return;
+      }
+
+      // Check if already registered in Applicant collection
+      const existing = await Applicant.findOne({
+        $or: [
+          { registrationNumber: cleanReg },
+          { email: member.email.toLowerCase().trim() },
+        ],
+      });
+      if (existing) {
+        res.status(409).json({
+          error: 'You have already submitted your preferences and received an allocation.',
+          applicationNumber: existing.applicationNumber,
+        });
+        return;
+      }
+
+      // Generate 6-digit numeric OTP
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+      // Clean up previous OTPs for this registration number
+      await OTP.deleteMany({ registrationNumber: cleanReg });
+
+      // Save new OTP with 10-min TTL
+      await OTP.create({
+        registrationNumber: cleanReg,
+        email: member.email.toLowerCase().trim(),
+        otp,
+        attempts: 0,
+      });
+
+      // Dispatch OTP email
+      await sendOTPEmail(member.email, member.name, otp);
+
+      res.json({
+        success: true,
+        message: 'Verification code sent successfully to your VIT email',
+        maskedEmail: maskEmail(member.email),
+      });
+    } catch (err: any) {
+      console.error('[POST /api/applications/send-otp]', err);
+      res.status(500).json({
+        error: 'Failed to send verification code. Please check your network or try again shortly.',
+      });
+    }
+  }
+);
+
+// ── POST /api/applications ────────────────────────────────────────────────────
 router.post(
   '/',
   registrationLimiter,
@@ -136,18 +248,19 @@ router.post(
       return;
     }
 
-    const { name, email, registrationNumber, phone, preferences } = req.body as {
+    const { name, email, registrationNumber, phone, preferences, otp } = req.body as {
       name: string;
       email: string;
       registrationNumber: string;
       phone?: string;
       preferences: [DepartmentName, DepartmentName, DepartmentName];
+      otp: string;
     };
 
-    // Strict validation against approved FFCS members roster
     const cleanReg = registrationNumber.trim().toUpperCase();
     const cleanEmail = email.trim().toLowerCase();
 
+    // 1. Strict validation against approved FFCS members roster
     const member = await FFCSMember.findOne({ registrationNumber: cleanReg });
     if (!member) {
       res.status(403).json({
@@ -169,17 +282,62 @@ router.post(
       return;
     }
 
+    // 2. Strict OTP verification
+    const otpRecord = await OTP.findOne({
+      registrationNumber: cleanReg,
+      email: cleanEmail,
+    });
+
+    if (!otpRecord) {
+      res.status(400).json({
+        error: 'No active verification code found. Please request a new verification code.',
+      });
+      return;
+    }
+
+    const inputOtp = (otp || '').trim();
+    if (otpRecord.otp !== inputOtp) {
+      otpRecord.attempts = (otpRecord.attempts || 0) + 1;
+      if (otpRecord.attempts >= 3) {
+        await OTP.deleteOne({ _id: otpRecord._id });
+        res.status(400).json({
+          error: 'Too many incorrect attempts. Your verification code has expired. Please request a new code.',
+        });
+        return;
+      }
+      await otpRecord.save();
+      res.status(400).json({
+        error: `Invalid verification code. You have ${3 - otpRecord.attempts} attempt(s) remaining.`,
+      });
+      return;
+    }
+
+    // OTP is valid — delete immediately to prevent reuse
+    await OTP.deleteOne({ _id: otpRecord._id });
+
     try {
       // submittedAt is stamped server-side — NEVER from client
       const submittedAt = new Date();
 
       const result = await allocate({
         name,
-        email,
-        registrationNumber,
-        phone,
+        email: cleanEmail,
+        registrationNumber: cleanReg,
+        phone: phone || member.phone,
         preferences,
         submittedAt,
+      });
+
+      // 3. Asynchronously dispatch allocation confirmation email ("approve the message")
+      sendAllocationConfirmationEmail(member.email, {
+        name: member.name || name,
+        registrationNumber: cleanReg,
+        applicationNumber: result.applicationNumber,
+        allocatedDepartment: result.allocatedDepartment || 'Pending Waitlist',
+        preferences,
+        createdAt: submittedAt,
+      }).catch((emailErr) => {
+        console.error('[POST /api/applications] Confirmation email failed:', emailErr.message);
       });
 
       res.status(201).json({
@@ -207,7 +365,7 @@ router.post(
   }
 );
 
-// GET /api/applications/:applicationNumber
+// ── GET /api/applications/:applicationNumber ──────────────────────────────────
 router.get(
   '/:applicationNumber',
   param('applicationNumber')

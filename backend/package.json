@@ -4,7 +4,7 @@
   "description": "VITSION Movie Makers Department Allocation Backend",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "node --watch --import tsx src/server.ts",
+    "dev": "node --watch=src --import tsx src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
     "seed": "tsx src/scripts/seed.ts",
@@ -21,6 +21,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/morgan": "^1.9.10",
     "@types/node": "^22.20.3",
+    "@types/nodemailer": "^8.0.2",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2"
   },
@@ -37,6 +38,7 @@
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.10.1",
     "morgan": "^1.12.1",
+    "nodemailer": "^10.0.10",
     "xlsx": "^0.18.5"
   }
 }
