@@ -10,6 +10,8 @@ import {
   ShieldCheck,
   Search,
   Lock,
+  Mail,
+  Clock,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { DepartmentName, VerifyMemberResult } from '../api/client';
@@ -17,6 +19,7 @@ import {
   ALL_DEPARTMENTS,
   submitApplication,
   verifyFFCSMember,
+  sendApplicationOTP,
 } from '../api/client';
 import axios from 'axios';
 
@@ -93,13 +96,31 @@ export default function RegisterPage() {
   const navigate = useNavigate();
   const [step, setStep] = useState<Step>('form');
   const [form, setForm] = useState<FormData>(INITIAL_FORM);
-  const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>(
+  const [errors, setErrors] = useState<Partial<Record<keyof FormData | 'otp', string>>>(
     {}
   );
   const [submitError, setSubmitError] = useState<string>('');
   const [verifying, setVerifying] = useState(false);
   const [verifyResult, setVerifyResult] = useState<VerifyMemberResult | null>(null);
   const [verifiedMember, setVerifiedMember] = useState<VerifyMemberResult['member'] | null>(null);
+
+  // Email OTP states
+  const [otp, setOtp] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+  const [sendingOtp, setSendingOtp] = useState(false);
+  const [resendTimer, setResendTimer] = useState(0);
+  const [maskedEmail, setMaskedEmail] = useState('');
+  const [otpError, setOtpError] = useState('');
+
+  // Resend cooldown timer
+  useEffect(() => {
+    if (resendTimer > 0) {
+      const interval = setInterval(() => {
+        setResendTimer((prev) => prev - 1);
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [resendTimer]);
 
   const set = useCallback(
     <K extends keyof FormData>(key: K, value: FormData[K]) => {
@@ -115,6 +136,7 @@ export default function RegisterPage() {
     if (!clean || clean.length < 5) {
       setVerifyResult(null);
       setVerifiedMember(null);
+      setMaskedEmail('');
       return;
     }
 
@@ -124,12 +146,12 @@ export default function RegisterPage() {
       setVerifyResult(res);
       if (res.valid && res.member) {
         setVerifiedMember(res.member);
+        setMaskedEmail(res.member.maskedEmail || res.member.email);
         setForm((prev) => ({
           ...prev,
           registrationNumber: res.member!.registrationNumber,
           name: res.member!.name,
           email: res.member!.email,
-          phone: prev.phone || res.member!.phone || '',
         }));
         setErrors((prev) => ({
           ...prev,
@@ -144,6 +166,9 @@ export default function RegisterPage() {
         }
       } else {
         setVerifiedMember(null);
+        setOtpSent(false);
+        setOtp('');
+        setMaskedEmail('');
         setErrors((prev) => ({
           ...prev,
           registrationNumber: res.message || 'Not found in official FFCS roster',
@@ -155,6 +180,36 @@ export default function RegisterPage() {
       setVerifying(false);
     }
   }, []);
+
+  // Send OTP handler
+  const handleSendOtp = async () => {
+    const clean = form.registrationNumber.trim().toUpperCase();
+    if (!clean || clean.length < 5) {
+      toast.error('Please enter a valid registration number first');
+      return;
+    }
+    setSendingOtp(true);
+    setOtpError('');
+    try {
+      const res = await sendApplicationOTP(clean);
+      if (res.success) {
+        setOtpSent(true);
+        setResendTimer(30);
+        if (res.maskedEmail) setMaskedEmail(res.maskedEmail);
+        toast.success('Verification code sent to your official VIT email!');
+      }
+    } catch (err: any) {
+      if (axios.isAxiosError(err)) {
+        const msg = err.response?.data?.error || 'Failed to send verification code';
+        setOtpError(msg);
+        toast.error(msg);
+      } else {
+        toast.error('Failed to send verification code');
+      }
+    } finally {
+      setSendingOtp(false);
+    }
+  };
 
   // Debounced auto-verification as student types their reg number
   useEffect(() => {
@@ -169,7 +224,7 @@ export default function RegisterPage() {
 
   // Validate form fields
   function validate(): boolean {
-    const newErrors: Partial<Record<keyof FormData, string>> = {};
+    const newErrors: Partial<Record<keyof FormData | 'otp', string>> = {};
 
     if (!form.registrationNumber.trim()) {
       newErrors.registrationNumber = 'Registration number is required';
@@ -193,12 +248,18 @@ export default function RegisterPage() {
       newErrors.email = `Must match your registered FFCS email (${verifiedMember.email})`;
     }
 
+    // OTP validation
+    if (!otpSent) {
+      newErrors.otp = 'Click "Send OTP" to verify your identity';
+      setOtpError('Please click "Send Verification Code" to verify ownership of your VIT email');
+    } else if (!otp.trim() || otp.trim().length !== 6) {
+      newErrors.otp = '6-digit verification code is required';
+      setOtpError('Please enter the 6-digit code sent to your email');
+    }
+
     if (!form.pref1) newErrors.pref1 = 'First preference is required';
     if (!form.pref2) newErrors.pref2 = 'Second preference is required';
     if (!form.pref3) newErrors.pref3 = 'Third preference is required';
-    if (form.phone && !/^[0-9+\-\s()]{7,15}$/.test(form.phone)) {
-      newErrors.phone = 'Invalid phone number';
-    }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -225,6 +286,7 @@ export default function RegisterPage() {
           form.pref2 as DepartmentName,
           form.pref3 as DepartmentName,
         ],
+        otp: otp.trim(),
       });
 
       // Store in sessionStorage so result page works on refresh without re-submitting
@@ -527,12 +589,12 @@ export default function RegisterPage() {
                 <input
                   id="email"
                   type="email"
-                  value={form.email}
+                  value={verifiedMember && maskedEmail ? maskedEmail : form.email}
                   onChange={(e) => set('email', e.target.value)}
                   readOnly={!!verifiedMember}
                   placeholder="yourname@vitstudent.ac.in"
                   className={`${inputClass(!!errors.email)} ${
-                    verifiedMember ? 'bg-zinc-900 text-zinc-300 pr-10 cursor-not-allowed' : ''
+                    verifiedMember ? 'bg-zinc-900 text-zinc-300 pr-10 cursor-not-allowed font-mono' : ''
                   }`}
                   autoComplete="email"
                   inputMode="email"
@@ -543,24 +605,98 @@ export default function RegisterPage() {
               </div>
             </Field>
 
-            {/* Phone */}
-            <Field
-              label="Phone Number"
-              id="phone"
-              error={errors.phone}
-              optional
-            >
-              <input
-                id="phone"
-                type="tel"
-                value={form.phone}
-                onChange={(e) => set('phone', e.target.value)}
-                placeholder="e.g. 9876543210"
-                className={inputClass(!!errors.phone)}
-                inputMode="tel"
-                autoComplete="tel"
-              />
-            </Field>
+
+
+            {/* ── EMAIL OTP VERIFICATION SECTION ─────────────────────────────────── */}
+            {verifiedMember && !verifyResult?.alreadyRegistered && (
+              <div className="rounded-xl border border-white/10 bg-[#141416] p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-zinc-300">
+                    <Mail size={15} className="text-[#e63946]" />
+                    Identity Verification (OTP)
+                    <span className="text-[#e63946]">*</span>
+                  </div>
+                  {otp.length === 6 ? (
+                    <span className="text-[11px] bg-emerald-500/20 text-emerald-400 font-semibold px-2 py-0.5 rounded flex items-center gap-1">
+                      <CheckCircle2 size={12} /> Code Entered
+                    </span>
+                  ) : otpSent ? (
+                    <span className="text-[11px] text-amber-400 font-medium flex items-center gap-1">
+                      <Clock size={12} /> Awaiting OTP
+                    </span>
+                  ) : null}
+                </div>
+
+                <p className="text-xs text-zinc-400">
+                  To prevent unauthorized submissions, a one-time verification code is sent to your official VIT email:{' '}
+                  <strong className="text-white font-mono">{maskedEmail || form.email}</strong>.
+                </p>
+
+                {!otpSent ? (
+                  <button
+                    type="button"
+                    id="send-otp-btn"
+                    onClick={handleSendOtp}
+                    disabled={sendingOtp}
+                    className="w-full py-2.5 px-4 bg-[#e63946] hover:bg-[#d62839] disabled:opacity-50 text-white font-semibold text-xs rounded-lg transition-colors flex items-center justify-center gap-2 shadow-lg shadow-[#e63946]/20"
+                  >
+                    {sendingOtp ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin" />
+                        Sending Verification Code…
+                      </>
+                    ) : (
+                      <>
+                        <Mail size={14} />
+                        Send OTP to Official VIT Email
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <input
+                          id="otp"
+                          type="text"
+                          maxLength={6}
+                          value={otp}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+                            setOtp(val);
+                            setOtpError('');
+                            setErrors((prev) => ({ ...prev, otp: undefined }));
+                          }}
+                          placeholder="Enter 6-digit code"
+                          className="w-full bg-[#1e1e24] border border-white/10 rounded-lg px-4 py-2.5 text-center font-mono text-lg tracking-[0.25em] font-bold text-white placeholder:text-zinc-600 focus:outline-none focus:border-[#e63946] focus:ring-1 focus:ring-[#e63946]"
+                          autoComplete="one-time-code"
+                        />
+                        {otp.length === 6 && (
+                          <CheckCircle2 size={18} className="text-emerald-400 absolute right-3 top-1/2 -translate-y-1/2" />
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        id="resend-otp-btn"
+                        onClick={handleSendOtp}
+                        disabled={sendingOtp || resendTimer > 0}
+                        className="px-3.5 py-2 bg-white/5 hover:bg-white/10 disabled:opacity-40 border border-white/10 text-zinc-300 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap"
+                      >
+                        {resendTimer > 0 ? `Resend in ${resendTimer}s` : 'Resend Code'}
+                      </button>
+                    </div>
+                    {(otpError || errors.otp) && (
+                      <p className="text-xs text-[#e63946] flex items-center gap-1">
+                        <AlertCircle size={12} /> {otpError || errors.otp}
+                      </p>
+                    )}
+                    <p className="text-[11px] text-zinc-500">
+                      Check your Outlook inbox (or Junk/Spam folder) for the verification email from VITSION Movie Makers.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Divider */}
             <div className="border-t border-white/[0.06] pt-4">
@@ -637,11 +773,10 @@ export default function RegisterPage() {
               <div className="divide-y divide-white/[0.04]">
                 {[
                   { label: 'Full Name', value: form.name },
-                  { label: 'VIT Email', value: form.email },
                   { label: 'Registration Number', value: form.registrationNumber },
-                  ...(form.phone
-                    ? [{ label: 'Phone', value: form.phone }]
-                    : []),
+                  { label: 'VIT Email', value: maskedEmail || form.email },
+                  { label: 'Email Ownership', value: '✓ Verified via 6-Digit OTP' },
+
                   { label: '1st Preference', value: form.pref1 || '—' },
                   { label: '2nd Preference', value: form.pref2 || '—' },
                   { label: '3rd Preference', value: form.pref3 || '—' },

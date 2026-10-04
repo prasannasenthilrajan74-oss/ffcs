@@ -14,6 +14,7 @@ import departmentsRouter from './routes/departments';
 import adminRouter from './routes/admin';
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 5000;
 
 // ── Security headers ──────────────────────────────────────────────────────────
