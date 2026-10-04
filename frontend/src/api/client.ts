@@ -47,7 +47,6 @@ export interface RegistrationPayload {
   registrationNumber: string;
   phone?: string;
   preferences: [DepartmentName, DepartmentName, DepartmentName];
-  otp: string;
 }
 
 export interface RegistrationResult {
@@ -212,7 +211,6 @@ export interface VerifyMemberResult {
     registrationNumber: string;
     name: string;
     email: string;
-    maskedEmail?: string;
     phone?: string;
     programme?: string;
     school?: string;
@@ -226,19 +224,6 @@ export async function verifyFFCSMember(regNumber: string): Promise<VerifyMemberR
   return res.data;
 }
 
-export interface SendOtpResult {
-  success: boolean;
-  message: string;
-  maskedEmail?: string;
-}
-
-export async function sendApplicationOTP(regNumber: string): Promise<SendOtpResult> {
-  const res = await api.post<SendOtpResult>('/api/applications/send-otp', {
-    registrationNumber: regNumber.trim().toUpperCase(),
-  });
-  return res.data;
-}
-
 export async function deleteAdminApplication(
   id: string
 ): Promise<{ success: boolean; message: string }> {
@@ -247,5 +232,4 @@ export async function deleteAdminApplication(
   );
   return res.data;
 }
-
 
