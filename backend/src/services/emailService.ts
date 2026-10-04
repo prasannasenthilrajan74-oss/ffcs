@@ -1,6 +1,13 @@
 import dotenv from 'dotenv';
 dotenv.config();
+import dns from 'node:dns';
 import nodemailer from 'nodemailer';
+
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch {
+  // Ignore on older node runtimes
+}
 
 function getTransporter() {
   const host = process.env.SMTP_HOST || 'smtp.gmail.com';
@@ -13,11 +20,15 @@ function getTransporter() {
     return null;
   }
 
-  return nodemailer.createTransport({
+  return (nodemailer.createTransport as any)({
     host,
     port,
     secure,
     auth: { user, pass },
+    family: 4, // Force IPv4 to prevent 20-30s IPv6 routing hangs on Render/cloud instances
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
     tls: {
       rejectUnauthorized: false, // Prevents self-signed cert issues on some hosts
     },
