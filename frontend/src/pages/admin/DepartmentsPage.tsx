@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
-import { RefreshCw, Edit3, Check, X, AlertTriangle, Download } from 'lucide-react';
+import { RefreshCw, Edit3, Check, X, AlertTriangle, Download, FileSpreadsheet, FileText } from 'lucide-react';
 import toast from 'react-hot-toast';
-import type { Department } from '../../api/client';
+import type { Department, ExportFormat } from '../../api/client';
 import {
   getAdminDepartments,
   updateDepartment,
+  downloadExport,
   ALL_DEPARTMENTS,
 } from '../../api/client';
 
@@ -96,15 +97,30 @@ export default function AdminDepartmentsPage() {
     }
   }
 
-  function handleExportAll() {
-    window.open('/api/admin/export', '_blank');
+  const [exportingFormat, setExportingFormat] = useState<ExportFormat | null>(null);
+
+  async function handleExportAll(format: ExportFormat) {
+    setExportingFormat(format);
+    try {
+      await downloadExport(undefined, format);
+      toast.success(`Exported all applicants (${format === 'xlsx' ? 'Excel' : 'CSV'})`);
+    } catch {
+      toast.error('Failed to export applicants');
+    } finally {
+      setExportingFormat(null);
+    }
   }
 
-  function handleExportDept(name: string) {
-    window.open(
-      `/api/admin/export?department=${encodeURIComponent(name)}`,
-      '_blank'
-    );
+  async function handleExportDept(name: string, format: ExportFormat) {
+    setExportingFormat(format);
+    try {
+      await downloadExport(name, format);
+      toast.success(`Exported ${name} (${format === 'xlsx' ? 'Excel' : 'CSV'})`);
+    } catch {
+      toast.error(`Failed to export ${name}`);
+    } finally {
+      setExportingFormat(null);
+    }
   }
 
   return (
@@ -119,12 +135,24 @@ export default function AdminDepartmentsPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            id="export-all-depts-btn"
-            onClick={handleExportAll}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-white/10 text-zinc-300 text-sm font-semibold hover:border-white/20 hover:text-white transition-colors"
+            id="export-all-excel-btn"
+            onClick={() => handleExportAll('xlsx')}
+            disabled={exportingFormat !== null}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-emerald-600/15 border border-emerald-500/30 text-emerald-400 text-sm font-semibold hover:bg-emerald-600/25 hover:border-emerald-500/50 hover:text-emerald-300 transition-colors disabled:opacity-50"
+            title="Export all departments to Excel (.xlsx)"
           >
-            <Download size={14} />
-            Export All
+            <FileSpreadsheet size={15} className={exportingFormat === 'xlsx' ? 'animate-pulse' : ''} />
+            Export Excel
+          </button>
+          <button
+            id="export-all-depts-btn"
+            onClick={() => handleExportAll('csv')}
+            disabled={exportingFormat !== null}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-lg border border-white/10 text-zinc-300 text-sm font-semibold hover:border-white/20 hover:text-white transition-colors disabled:opacity-50"
+            title="Export all to CSV"
+          >
+            <FileText size={15} className={exportingFormat === 'csv' ? 'animate-pulse' : ''} />
+            Export CSV
           </button>
           <button
             id="refresh-depts-btn"
@@ -303,10 +331,18 @@ export default function AdminDepartmentsPage() {
                               <Edit3 size={14} />
                             </button>
                             <button
+                              id={`export-dept-excel-${dept._id}`}
+                              onClick={() => handleExportDept(dept.name, 'xlsx')}
+                              className="p-1.5 rounded-md hover:bg-emerald-500/20 text-zinc-500 hover:text-emerald-400 transition-colors"
+                              title={`Export ${dept.name} to Excel (.xlsx)`}
+                            >
+                              <FileSpreadsheet size={14} />
+                            </button>
+                            <button
                               id={`export-dept-${dept._id}`}
-                              onClick={() => handleExportDept(dept.name)}
+                              onClick={() => handleExportDept(dept.name, 'csv')}
                               className="p-1.5 rounded-md hover:bg-white/10 text-zinc-500 hover:text-white transition-colors"
-                              title="Export CSV"
+                              title={`Export ${dept.name} to CSV`}
                             >
                               <Download size={14} />
                             </button>

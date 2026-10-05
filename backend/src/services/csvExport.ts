@@ -59,7 +59,7 @@ export async function generateCSV(
   applicants: Partial<IApplicant>[]
 ): Promise<string> {
   const lines = [HEADERS.join(','), ...applicants.map(rowToCSV)];
-  return lines.join('\n');
+  return '\uFEFF' + lines.join('\r\n');
 }
 
 export async function generateDepartmentCSV(
@@ -70,5 +70,5 @@ export async function generateDepartmentCSV(
     (a) => a.allocatedDepartment === department
   );
   const lines = [HEADERS.join(','), ...filtered.map(rowToCSV)];
-  return lines.join('\n');
+  return '\uFEFF' + lines.join('\r\n');
 }

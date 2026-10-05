@@ -192,13 +192,59 @@ export async function updateSettings(settings: {
   return res.data;
 }
 
-export function getExportUrl(department?: string): string {
+export type ExportFormat = 'xlsx' | 'csv';
+
+export function getExportUrl(department?: string, format: ExportFormat = 'xlsx'): string {
   const base = `${API_BASE}/api/admin/export`;
   const token = localStorage.getItem('vitsion_admin_token');
   const params = new URLSearchParams();
   if (department) params.set('department', department);
+  if (format) params.set('format', format);
   if (token) params.set('token', token);
   return `${base}${params.toString() ? '?' + params.toString() : ''}`;
+}
+
+export async function downloadExport(
+  department?: string,
+  format: ExportFormat = 'xlsx'
+): Promise<void> {
+  const params: Record<string, string> = { format };
+  if (department) {
+    params.department = department;
+  }
+
+  const res = await api.get('/api/admin/export', {
+    params,
+    responseType: 'blob',
+  });
+
+  const headerContentType = res.headers['content-type'];
+  const contentType =
+    (typeof headerContentType === 'string' ? headerContentType : undefined) ||
+    (format === 'csv'
+      ? 'text/csv; charset=utf-8'
+      : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+
+  const blob = new Blob([res.data], { type: contentType });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+
+  let filename = `${department ? department.replace(/\s+/g, '_') : 'all'}_applicants.${format === 'csv' ? 'csv' : 'xlsx'}`;
+  const headerDisposition = res.headers['content-disposition'];
+  const disposition = typeof headerDisposition === 'string' ? headerDisposition : undefined;
+  if (disposition) {
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    if (match && match[1]) {
+      filename = match[1];
+    }
+  }
+
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
 }
 
 export interface VerifyMemberResult {

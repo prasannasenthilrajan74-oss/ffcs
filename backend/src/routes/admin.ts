@@ -6,6 +6,7 @@ import { Applicant } from '../models/Applicant';
 import { Department } from '../models/Department';
 import { getSetting, setSetting } from '../models/Settings';
 import { generateCSV, generateDepartmentCSV } from '../services/csvExport';
+import { generateExcel, generateDepartmentExcel } from '../services/excelExport';
 import { deleteApplicant } from '../services/allocationEngine';
 
 const router = Router();
@@ -302,27 +303,55 @@ router.patch(
 router.get(
   '/export',
   requireAdmin,
-  [query('department').optional().trim().isString()],
+  [
+    query('department').optional().trim().isString(),
+    query('format').optional().trim().toLowerCase().isIn(['csv', 'excel', 'xlsx']),
+  ],
   async (req: Request, res: Response): Promise<void> => {
     try {
       const department = (req.query.department as string) || '';
+      const rawFormat = ((req.query.format as string) || '').toLowerCase();
+      const isCsv = rawFormat === 'csv';
 
       const filter: Record<string, unknown> = {};
       if (department) filter.allocatedDepartment = department;
 
       const applicants = await Applicant.find(filter).sort({ submittedAt: 1 }).lean();
 
-      if (department) {
-        const csv = await generateDepartmentCSV(applicants, department);
-        const filename = `${department.replace(/\s+/g, '_')}_applicants.csv`;
-        res.setHeader('Content-Type', 'text/csv');
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-        res.send(csv);
+      if (isCsv) {
+        if (department) {
+          const csv = await generateDepartmentCSV(applicants, department);
+          const filename = `${department.replace(/\s+/g, '_')}_applicants.csv`;
+          res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+          res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+          res.send(csv);
+        } else {
+          const csv = await generateCSV(applicants);
+          res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+          res.setHeader('Content-Disposition', 'attachment; filename="all_applicants.csv"');
+          res.send(csv);
+        }
       } else {
-        const csv = await generateCSV(applicants);
-        res.setHeader('Content-Type', 'text/csv');
-        res.setHeader('Content-Disposition', 'attachment; filename="all_applicants.csv"');
-        res.send(csv);
+        // Default to Excel (.xlsx) format
+        if (department) {
+          const buffer = await generateDepartmentExcel(applicants, department);
+          const filename = `${department.replace(/\s+/g, '_')}_applicants.xlsx`;
+          res.setHeader(
+            'Content-Type',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          );
+          res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+          res.send(buffer);
+        } else {
+          const buffer = await generateExcel(applicants);
+          const filename = 'all_applicants.xlsx';
+          res.setHeader(
+            'Content-Type',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          );
+          res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+          res.send(buffer);
+        }
       }
     } catch (err) {
       console.error('[GET /api/admin/export]', err);

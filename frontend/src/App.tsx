@@ -39,10 +39,6 @@ function App() {
           <Route path="departments" element={<AdminDepartmentsPage />} />
         </Route>
 
-        {/* Redirect old admin paths to /appdefg */}
-        <Route path="/admin" element={<Navigate to="/appdefg" replace />} />
-        <Route path="/admin/*" element={<Navigate to="/appdefg" replace />} />
-
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

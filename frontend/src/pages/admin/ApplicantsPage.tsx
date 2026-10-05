@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Search, ChevronUp, ChevronDown, Download, RefreshCw, Trash2, AlertTriangle } from 'lucide-react';
+import { Search, ChevronUp, ChevronDown, RefreshCw, Trash2, AlertTriangle, FileSpreadsheet, FileText } from 'lucide-react';
 import toast from 'react-hot-toast';
-import type { Applicant } from '../../api/client';
+import type { Applicant, ExportFormat } from '../../api/client';
 import {
   getAdminApplications,
   deleteAdminApplication,
+  downloadExport,
   ALL_DEPARTMENTS,
 } from '../../api/client';
 
@@ -88,16 +89,32 @@ export default function AdminApplicantsPage() {
     );
   }
 
-  function handleExport() {
-    const params = new URLSearchParams();
-    if (deptFilter) params.set('department', deptFilter);
-    const url = `/api/admin/export${params.toString() ? '?' + params.toString() : ''}`;
-    window.open(url, '_blank');
+  const [exportingFormat, setExportingFormat] = useState<ExportFormat | null>(null);
+
+  async function handleExport(format: ExportFormat) {
+    setExportingFormat(format);
+    try {
+      await downloadExport(deptFilter || undefined, format);
+      toast.success(
+        `Downloaded ${deptFilter || 'all'} applicants (${format === 'xlsx' ? 'Excel' : 'CSV'})`
+      );
+    } catch {
+      toast.error('Failed to download export');
+    } finally {
+      setExportingFormat(null);
+    }
   }
 
-  function handleExportDept(dept: string) {
-    const url = `/api/admin/export?department=${encodeURIComponent(dept)}`;
-    window.open(url, '_blank');
+  async function handleExportDept(dept: string, format: ExportFormat) {
+    setExportingFormat(format);
+    try {
+      await downloadExport(dept, format);
+      toast.success(`Downloaded ${dept} applicants (${format === 'xlsx' ? 'Excel' : 'CSV'})`);
+    } catch {
+      toast.error('Failed to download export');
+    } finally {
+      setExportingFormat(null);
+    }
   }
 
   return (
@@ -110,11 +127,23 @@ export default function AdminApplicantsPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            id="export-all-btn"
-            onClick={handleExport}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-white/10 text-zinc-300 text-sm font-semibold hover:border-white/20 hover:text-white transition-colors"
+            id="export-excel-btn"
+            onClick={() => handleExport('xlsx')}
+            disabled={exportingFormat !== null}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-emerald-600/15 border border-emerald-500/30 text-emerald-400 text-sm font-semibold hover:bg-emerald-600/25 hover:border-emerald-500/50 hover:text-emerald-300 transition-colors disabled:opacity-50"
+            title="Download as Excel (.xlsx) file"
           >
-            <Download size={14} />
+            <FileSpreadsheet size={15} className={exportingFormat === 'xlsx' ? 'animate-pulse' : ''} />
+            Export Excel
+          </button>
+          <button
+            id="export-all-btn"
+            onClick={() => handleExport('csv')}
+            disabled={exportingFormat !== null}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-lg border border-white/10 text-zinc-300 text-sm font-semibold hover:border-white/20 hover:text-white transition-colors disabled:opacity-50"
+            title="Download as CSV file"
+          >
+            <FileText size={15} className={exportingFormat === 'csv' ? 'animate-pulse' : ''} />
             Export CSV
           </button>
         </div>
@@ -172,12 +201,23 @@ export default function AdminApplicantsPage() {
 
       {/* Export per-department buttons */}
       {deptFilter && (
-        <div className="mb-4">
+        <div className="flex items-center gap-2 mb-4">
           <button
-            onClick={() => handleExportDept(deptFilter)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#e63946]/10 border border-[#e63946]/20 text-[#e63946] text-xs font-semibold hover:bg-[#e63946]/20 transition-colors"
+            onClick={() => handleExportDept(deptFilter, 'xlsx')}
+            disabled={exportingFormat !== null}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold hover:bg-emerald-600/20 transition-colors disabled:opacity-50"
+            title={`Download ${deptFilter} in Excel`}
           >
-            <Download size={12} />
+            <FileSpreadsheet size={13} />
+            Export {deptFilter} Excel
+          </button>
+          <button
+            onClick={() => handleExportDept(deptFilter, 'csv')}
+            disabled={exportingFormat !== null}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#e63946]/10 border border-[#e63946]/20 text-[#e63946] text-xs font-semibold hover:bg-[#e63946]/20 transition-colors disabled:opacity-50"
+            title={`Download ${deptFilter} in CSV`}
+          >
+            <FileText size={13} />
             Export {deptFilter} CSV
           </button>
         </div>
