@@ -3,11 +3,11 @@ import { body, query, param, validationResult } from 'express-validator';
 import jwt from 'jsonwebtoken';
 import { requireAdmin } from '../middleware/auth';
 import { Applicant } from '../models/Applicant';
-import { Department } from '../models/Department';
+import { Department, DEPARTMENT_NAMES } from '../models/Department';
 import { getSetting, setSetting } from '../models/Settings';
 import { generateCSV, generateDepartmentCSV } from '../services/csvExport';
 import { generateExcel, generateDepartmentExcel } from '../services/excelExport';
-import { deleteApplicant } from '../services/allocationEngine';
+import { deleteApplicant, overrideApplicantDepartment } from '../services/allocationEngine';
 
 const router = Router();
 
@@ -206,6 +206,85 @@ router.delete(
       res.status(500).json({ error: 'Failed to delete applicant request' });
     }
   }
+);
+
+// ── PATCH /api/admin/applicants/:id/override ─────────────────────────────────
+// Allows admin to override department allocation and status WITHOUT mailing the applicant.
+const handleApplicantOverride = async (req: Request, res: Response): Promise<void> => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    res.status(422).json({ errors: errors.array() });
+    return;
+  }
+
+  try {
+    const { allocatedDepartment, status } = req.body;
+    const result = await overrideApplicantDepartment({
+      id: req.params.id as string,
+      department: allocatedDepartment,
+      status,
+    });
+
+    let message = result.newDepartment
+      ? `Applicant successfully moved to ${result.newDepartment} (no email sent).`
+      : `Applicant allocation moved to Waitlist (no email sent).`;
+
+    if (result.capacityIncreased) {
+      message += ` Capacity of ${result.newDepartment} was automatically increased to ${result.newCapacity}.`;
+    }
+
+    res.json({
+      success: true,
+      message,
+      applicant: result.applicant,
+      oldDepartment: result.oldDepartment,
+      newDepartment: result.newDepartment,
+      oldStatus: result.oldStatus,
+      newStatus: result.newStatus,
+      capacityIncreased: result.capacityIncreased,
+      newCapacity: result.newCapacity,
+      emailSent: false,
+    });
+  } catch (err: unknown) {
+    console.error('[PATCH /api/admin/applicants/:id/override]', err);
+    const msg = err instanceof Error ? err.message : 'Failed to override applicant allocation';
+    if (msg === 'Applicant not found') {
+      res.status(404).json({ error: msg });
+      return;
+    }
+    res.status(500).json({ error: msg });
+  }
+};
+
+const applicantOverrideValidation = [
+  param('id').isMongoId().withMessage('Invalid applicant ID'),
+  body('allocatedDepartment')
+    .optional({ nullable: true })
+    .custom((val) => {
+      if (val === null || val === '' || val === undefined) return true;
+      if (!DEPARTMENT_NAMES.includes(val)) {
+        throw new Error(`Invalid department. Must be one of: ${DEPARTMENT_NAMES.join(', ')}`);
+      }
+      return true;
+    }),
+  body('status')
+    .optional()
+    .isIn(['CONFIRMED', 'WAITLISTED'])
+    .withMessage('Status must be CONFIRMED or WAITLISTED'),
+];
+
+router.patch(
+  '/applicants/:id/override',
+  requireAdmin,
+  applicantOverrideValidation,
+  handleApplicantOverride
+);
+
+router.patch(
+  '/applicants/:id',
+  requireAdmin,
+  applicantOverrideValidation,
+  handleApplicantOverride
 );
 
 // ── GET /api/admin/departments ────────────────────────────────────────────────

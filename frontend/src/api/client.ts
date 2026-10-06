@@ -293,3 +293,26 @@ export async function deleteAdminApplication(
   return res.data;
 }
 
+export async function overrideApplicant(
+  id: string,
+  updates: {
+    allocatedDepartment: DepartmentName | null;
+    status?: ApplicationStatus;
+  }
+): Promise<{
+  success: boolean;
+  message: string;
+  applicant: Applicant;
+  oldDepartment?: string | null;
+  newDepartment?: string | null;
+}> {
+  const res = await api.patch<{
+    success: boolean;
+    message: string;
+    applicant: Applicant;
+    oldDepartment?: string | null;
+    newDepartment?: string | null;
+  }>(`/api/admin/applicants/${id}/override`, updates);
+  return res.data;
+}
+

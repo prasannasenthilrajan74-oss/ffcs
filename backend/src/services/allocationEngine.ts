@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import { Department, DepartmentName } from '../models/Department';
-import { Applicant, ApplicationStatus } from '../models/Applicant';
+import { Applicant, ApplicationStatus, IApplicant } from '../models/Applicant';
 
 /**
  * FCFS Allocation Engine
@@ -208,5 +208,97 @@ export class DuplicateRegistrationError extends Error {
     super('Duplicate registration');
     this.name = 'DuplicateRegistrationError';
   }
+}
+
+// ── Override Applicant Allocation (Admin) ───────────────────────────────────
+
+export interface OverrideApplicantInput {
+  id: string;
+  department?: DepartmentName | null;
+  status?: ApplicationStatus;
+}
+
+export async function overrideApplicantDepartment(input: OverrideApplicantInput): Promise<{
+  applicant: IApplicant;
+  oldDepartment: string | null;
+  newDepartment: string | null;
+  oldStatus: ApplicationStatus;
+  newStatus: ApplicationStatus;
+  capacityIncreased: boolean;
+  newCapacity?: number;
+}> {
+  const applicant = await Applicant.findById(input.id);
+  if (!applicant) {
+    throw new Error('Applicant not found');
+  }
+
+  const oldDept = (applicant.allocatedDepartment as string) || null;
+  const oldStatus = applicant.status;
+
+  let newDept: DepartmentName | null = null;
+  let newStatus: ApplicationStatus = 'WAITLISTED';
+
+  const isWaitlistRequested =
+    input.status === 'WAITLISTED' ||
+    input.department === null ||
+    input.department === undefined ||
+    (typeof input.department === 'string' && input.department.trim() === '');
+
+  if (isWaitlistRequested) {
+    if (input.status === 'CONFIRMED' && input.department && input.department.trim() !== '') {
+      newDept = input.department;
+      newStatus = 'CONFIRMED';
+    } else {
+      newDept = null;
+      newStatus = 'WAITLISTED';
+    }
+  } else {
+    newDept = input.department || null;
+    newStatus = input.status || (newDept ? 'CONFIRMED' : 'WAITLISTED');
+  }
+
+  // Update applicant document
+  applicant.allocatedDepartment = (newDept ?? undefined) as any;
+  applicant.status = newStatus;
+  await applicant.save();
+
+  // Re-synchronize exact allocatedCount for affected departments in MongoDB
+  const deptsToSync = new Set<string>();
+  if (oldDept) deptsToSync.add(oldDept);
+  if (newDept) deptsToSync.add(newDept);
+
+  let capacityIncreased = false;
+  let newCapacity: number | undefined;
+
+  for (const deptName of deptsToSync) {
+    const count = await Applicant.countDocuments({
+      allocatedDepartment: deptName,
+      status: 'CONFIRMED',
+    } as any);
+
+    const deptDoc = await Department.findOne({ name: deptName } as any);
+    if (deptDoc) {
+      (deptDoc as any).allocatedCount = count;
+      // If adding to this department and count exceeds capacity (i.e. department is full), increase capacity
+      if (deptName === newDept && newStatus === 'CONFIRMED' && count > (deptDoc as any).capacity) {
+        (deptDoc as any).capacity = count;
+        capacityIncreased = true;
+        newCapacity = count;
+      }
+      await deptDoc.save();
+    }
+  }
+
+  // NOTE: Intentionally DO NOT send any email to the applicant (silent override).
+
+  return {
+    applicant,
+    oldDepartment: oldDept,
+    newDepartment: newDept,
+    oldStatus,
+    newStatus,
+    capacityIncreased,
+    newCapacity,
+  };
 }
 
