@@ -96,6 +96,9 @@ export interface AdminStats {
   totalFilled: number;
   totalRemaining: number;
   registrationOpen: boolean;
+  totalRosterMembers?: number;
+  rosterFilledCount?: number;
+  rosterUnfilledCount?: number;
   departments: Department[];
 }
 
@@ -315,4 +318,42 @@ export async function overrideApplicant(
   }>(`/api/admin/applicants/${id}/override`, updates);
   return res.data;
 }
+
+export interface UnfilledMember {
+  registrationNumber: string;
+  name: string;
+  email: string;
+  phone?: string;
+  programme?: string;
+  school?: string;
+}
+
+export interface UnfilledMembersResponse {
+  totalRoster: number;
+  filledCount: number;
+  unfilledCount: number;
+  unfilledMembers: UnfilledMember[];
+}
+
+export async function getUnfilledMembers(): Promise<UnfilledMembersResponse> {
+  const res = await api.get<UnfilledMembersResponse>('/api/admin/unfilled-members');
+  return res.data;
+}
+
+export async function downloadUnfilledExport(format: 'csv' | 'excel'): Promise<void> {
+  const res = await api.get('/api/admin/export', {
+    params: { type: 'unfilled', format },
+    responseType: 'blob',
+  });
+  const ext = format === 'csv' ? 'csv' : 'xlsx';
+  const url = window.URL.createObjectURL(new Blob([res.data]));
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', `pending_unfilled_members.${ext}`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}
+
 

@@ -2,6 +2,7 @@ import path from 'path';
 import fs from 'fs';
 import * as xlsx from 'xlsx';
 import { FFCSMember, IFFCSMember } from '../models/FFCSMember';
+import { Applicant } from '../models/Applicant';
 
 interface ExcelMemberRow {
   'Register No'?: string | number;
@@ -126,3 +127,82 @@ export async function findFFCSMember(
   const cleanReg = registrationNumber.trim().toUpperCase();
   return FFCSMember.findOne({ registrationNumber: cleanReg });
 }
+
+export interface UnfilledMember {
+  registrationNumber: string;
+  name: string;
+  email: string;
+  phone?: string;
+  programme?: string;
+  school?: string;
+}
+
+export interface RosterCompletionStatus {
+  totalRoster: number;
+  filledCount: number;
+  unfilledCount: number;
+  unfilledMembers: UnfilledMember[];
+}
+
+/**
+ * Computes how many approved FFCS roster members have and have not
+ * submitted their department preferences, purely by reading from DB (or Excel fallback).
+ * This operation is strictly read-only and does NOT write or manipulate the database.
+ */
+export async function getRosterCompletionStatus(): Promise<RosterCompletionStatus> {
+  let members: Array<{
+    registrationNumber: string;
+    name: string;
+    email: string;
+    phone?: string;
+    programme?: string;
+    school?: string;
+  }> = await FFCSMember.find()
+    .sort({ registrationNumber: 1 })
+    .select('registrationNumber name email phone programme school')
+    .lean();
+
+  if (!members || members.length === 0) {
+    members = loadMembersFromExcel();
+  }
+
+  const applicants = await Applicant.find({}, { registrationNumber: 1, email: 1 }).lean();
+  const appliedRegSet = new Set(
+    applicants.map((a) => (a.registrationNumber || '').trim().toUpperCase())
+  );
+  const appliedEmailSet = new Set(
+    applicants.map((a) => (a.email || '').trim().toLowerCase())
+  );
+
+  const unfilledMembers: UnfilledMember[] = [];
+  let filledCount = 0;
+
+  for (const m of members) {
+    const reg = (m.registrationNumber || '').trim().toUpperCase();
+    const email = (m.email || '').trim().toLowerCase();
+    const hasApplied =
+      (Boolean(reg) && appliedRegSet.has(reg)) ||
+      (Boolean(email) && appliedEmailSet.has(email));
+
+    if (hasApplied) {
+      filledCount++;
+    } else {
+      unfilledMembers.push({
+        registrationNumber: m.registrationNumber,
+        name: m.name,
+        email: m.email,
+        phone: m.phone || '',
+        programme: m.programme || '',
+        school: m.school || '',
+      });
+    }
+  }
+
+  return {
+    totalRoster: members.length,
+    filledCount,
+    unfilledCount: unfilledMembers.length,
+    unfilledMembers,
+  };
+}
+

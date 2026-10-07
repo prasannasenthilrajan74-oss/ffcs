@@ -72,3 +72,26 @@ export async function generateDepartmentCSV(
   const lines = [HEADERS.join(','), ...filtered.map(rowToCSV)];
   return '\uFEFF' + lines.join('\r\n');
 }
+
+export async function generateUnfilledMembersCSV(
+  members: Array<{
+    registrationNumber: string;
+    name: string;
+    email: string;
+    phone?: string;
+    programme?: string;
+    school?: string;
+  }>
+): Promise<string> {
+  const headers = ['Registration Number', 'Name', 'Email', 'Phone', 'Programme', 'School'];
+  const lines = [
+    headers.join(','),
+    ...members.map((m) =>
+      [m.registrationNumber, m.name, m.email, m.phone ?? '', m.programme ?? '', m.school ?? '']
+        .map(escapeCSV)
+        .join(',')
+    ),
+  ];
+  return '\uFEFF' + lines.join('\r\n');
+}
+

@@ -5,9 +5,10 @@ import { requireAdmin } from '../middleware/auth';
 import { Applicant } from '../models/Applicant';
 import { Department, DEPARTMENT_NAMES } from '../models/Department';
 import { getSetting, setSetting } from '../models/Settings';
-import { generateCSV, generateDepartmentCSV } from '../services/csvExport';
-import { generateExcel, generateDepartmentExcel } from '../services/excelExport';
+import { generateCSV, generateDepartmentCSV, generateUnfilledMembersCSV } from '../services/csvExport';
+import { generateExcel, generateDepartmentExcel, generateUnfilledMembersExcel } from '../services/excelExport';
 import { deleteApplicant, overrideApplicantDepartment } from '../services/allocationEngine';
+import { getRosterCompletionStatus } from '../services/ffcsRoster';
 
 const router = Router();
 
@@ -85,12 +86,14 @@ router.get('/stats', requireAdmin, async (_req: Request, res: Response): Promise
       waitlisted,
       departments,
       registrationOpen,
+      rosterStatus,
     ] = await Promise.all([
       Applicant.countDocuments(),
       Applicant.countDocuments({ status: 'CONFIRMED' }),
       Applicant.countDocuments({ status: 'WAITLISTED' }),
       Department.find({ active: true }).lean(),
       getSetting<boolean>('registrationOpen', true),
+      getRosterCompletionStatus(),
     ]);
 
     const totalCapacity = departments.reduce((sum, d) => sum + d.capacity, 0);
@@ -104,6 +107,9 @@ router.get('/stats', requireAdmin, async (_req: Request, res: Response): Promise
       totalFilled,
       totalRemaining: totalCapacity - totalFilled,
       registrationOpen,
+      totalRosterMembers: rosterStatus.totalRoster,
+      rosterFilledCount: rosterStatus.filledCount,
+      rosterUnfilledCount: rosterStatus.unfilledCount,
       departments: departments.map((d) => ({
         _id: d._id,
         name: d.name,
@@ -118,6 +124,18 @@ router.get('/stats', requireAdmin, async (_req: Request, res: Response): Promise
     res.status(500).json({ error: 'Failed to load stats' });
   }
 });
+
+// ── GET /api/admin/unfilled-members ───────────────────────────────────────────
+router.get('/unfilled-members', requireAdmin, async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const rosterStatus = await getRosterCompletionStatus();
+    res.json(rosterStatus);
+  } catch (err) {
+    console.error('[GET /api/admin/unfilled-members]', err);
+    res.status(500).json({ error: 'Failed to load unfilled members' });
+  }
+});
+
 
 // ── GET /api/admin/applications ───────────────────────────────────────────────
 router.get(
@@ -385,12 +403,33 @@ router.get(
   [
     query('department').optional().trim().isString(),
     query('format').optional().trim().toLowerCase().isIn(['csv', 'excel', 'xlsx']),
+    query('type').optional().trim().toLowerCase().isIn(['applicants', 'unfilled', '']),
   ],
   async (req: Request, res: Response): Promise<void> => {
     try {
       const department = (req.query.department as string) || '';
+      const type = ((req.query.type as string) || 'applicants').toLowerCase();
       const rawFormat = ((req.query.format as string) || '').toLowerCase();
       const isCsv = rawFormat === 'csv';
+
+      if (type === 'unfilled') {
+        const { unfilledMembers } = await getRosterCompletionStatus();
+        if (isCsv) {
+          const csv = await generateUnfilledMembersCSV(unfilledMembers);
+          res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+          res.setHeader('Content-Disposition', 'attachment; filename="pending_unfilled_members.csv"');
+          res.send(csv);
+        } else {
+          const buffer = await generateUnfilledMembersExcel(unfilledMembers);
+          res.setHeader(
+            'Content-Type',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          );
+          res.setHeader('Content-Disposition', 'attachment; filename="pending_unfilled_members.xlsx"');
+          res.send(buffer);
+        }
+        return;
+      }
 
       const filter: Record<string, unknown> = {};
       if (department) filter.allocatedDepartment = department;

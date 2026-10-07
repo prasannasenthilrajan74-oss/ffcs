@@ -102,3 +102,38 @@ export async function generateDepartmentExcel(
   const output = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
   return Buffer.isBuffer(output) ? output : Buffer.from(output);
 }
+
+export async function generateUnfilledMembersExcel(
+  members: Array<{
+    registrationNumber: string;
+    name: string;
+    email: string;
+    phone?: string;
+    programme?: string;
+    school?: string;
+  }>
+): Promise<Buffer> {
+  const workbook = xlsx.utils.book_new();
+  const rows = members.map((m) => ({
+    'Registration Number': m.registrationNumber,
+    'Name': m.name,
+    'Email': m.email,
+    'Phone': m.phone || '',
+    'Programme': m.programme || '',
+    'School': m.school || '',
+  }));
+  const worksheet = xlsx.utils.json_to_sheet(rows);
+  worksheet['!cols'] = [
+    { wch: 22 },
+    { wch: 26 },
+    { wch: 32 },
+    { wch: 18 },
+    { wch: 20 },
+    { wch: 20 },
+  ];
+  xlsx.utils.book_append_sheet(workbook, worksheet, 'Pending Members');
+
+  const output = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  return Buffer.isBuffer(output) ? output : Buffer.from(output);
+}
+
